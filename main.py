@@ -1,9 +1,9 @@
 import math
 import numpy as np
 import cmath
+import tkinter as tk
+from tkinter import ttk
 
-from rich.align import Align
-from rich.console import Console
 from rich.table import Table
 from rich import box  
 
@@ -346,12 +346,6 @@ def calc_pow(bars,y, qnt):
             bars[i][5] = v2*bars[i][2]
                 
                 
-def bars_print(bars):
-    #printa as barras em sequência
-    for i in range(len(bars)):
-        print(bars[i])
-
-
 def NewtonRhapson(y,bars,qnt,e):
     #Processo do Newton Rhapson de fato
     test = 0
@@ -393,7 +387,6 @@ def NewtonRhapson(y,bars,qnt,e):
 
         if convergence(x,e) == True:
             calc_pow(bars,y, barsqnt)
-            bars_print(bars)
             break
 
 def exist_in(x,vet):
@@ -512,14 +505,11 @@ def harmonic_calc(currents, connections, barsqnt,bars,vh):
     table.add_column("DIT (h = 5)", justify="center")
     for i in range(len(DTT)):
         table.add_row(f'Barra {i + 1}', f'{abs(v[i][0])*(bars[i][8] * 1e3)/math.sqrt(3.0):.2f}∠{cmath.phase(v[i][0])*(180/math.pi) + 30:.2f}°', f'{DTT[i][0]:.2f}%')
-    table = Align.center(table)
-
-
     #print("DIT: \n",DIT,"\n")
     #print("DTT: \n",DTT,"\n")
 
     print('\n')  
-    console.print(table)
+    add_result_table(table, "Distorções harmônicas")
 
     return DTT
 
@@ -769,32 +759,24 @@ def compartilha(y,bars, connections, currents, vh):
     table1.add_row(f'I_con-h (A)', f'{abs(iCon):.2f}∠{cmath.phase(iCon)*(180/math.pi):.2f}°')
     for i in range(len(iInd)):
         table1.add_row(f'I_ind{i + 1}-h (A)', f'{abs(iInd[i]):.2f}∠{cmath.phase(iInd[i])*(180/math.pi):.2f}°')
-    table1 = Align.center(table1)
-
     table2 = Table(show_header=True, header_style="bold blue", box=box.HEAVY, title="Impedâncias harmônicas das partes do sistema - análise para h = 5", title_style="bold blue")
     table2.add_column("Grandeza\nordem h = 5", justify="center")
     table2.add_column("Valor de\nimpedância (Ω)", justify="center")
     table2.add_row(f'Z_con-h', f'{abs(zCon):.2f}∠{cmath.phase(zCon)*(180/math.pi):.2f}°')
     for i in range(len(zInd)):
         table2.add_row(f'Z_ind{i + 1}-h', f'{abs(zInd[i]):.2f}∠{cmath.phase(zInd[i])*(180/math.pi):.2f}°')
-    table2 = Align.center(table2)
-
     table3 = Table(show_header=True, header_style="bold green", box=box.HEAVY, title="Fasores de contribuição individual de tensão em cada análise de compartilhamento", title_style="bold green")
     table3.add_column("Compartilhamento\ninvestigado", justify="center")
     table3.add_column("Vs-proj-h (V)", justify="center")
     table3.add_column("Vc-proj-h (V)", justify="center")
     for i in range(len(vs_pac)):
         table3.add_row(f'Indústria {i + 1}', f'{abs(vs_pac[i]):.2f}∠{cmath.phase(vs_pac[i])*(180/math.pi):.2f}°', f'{abs(vc_pac[i]):.2f}∠{cmath.phase(vc_pac[i])*(180/math.pi):.2f}°')
-    table3 = Align.center(table3)
-
     table4 = Table(show_header=True, header_style="bold red", box=box.HEAVY, title="Projeções escalares dos fasores de contribuição individual de cada parte", title_style="bold red")
     table4.add_column("Compartilhamento\ninvestigado", justify="center")
     table4.add_column("Vs-proj-h (V)", justify="center")
     table4.add_column("Vc-proj-h (V)", justify="center")
     for i in range(len(vs_proj)):
         table4.add_row(f'Indústria {i + 1}', f'{vs_proj[i]:.2f}', f'{vc_proj[i]:.2f}')
-    table4 = Align.center(table4)
-    
     table5 = Table(show_header=True, show_footer=True, header_style="bold magenta", box=box.HEAVY, title="Percentuais de responsabilidades cabidos às indústrias", title_style="bold magenta")
     table5.add_column("Compartilhamento\ninvestigado", justify="center", footer="TOTAL")
     table5.add_column("Responsabilidade\nMétodo 1", justify="center", footer=f'{total[0]:.2f}%')
@@ -802,21 +784,179 @@ def compartilha(y,bars, connections, currents, vh):
     table5.add_column("Responsabilidade\nMétodo 3", justify="center", footer=f'{total[2]:.2f}%')
     for i in range(len(resp)):
         table5.add_row(f'Indústria {i + 1}', f'{resp[i][0]:.2f}%', f'{resp[i][1]:.2f}%', f'{resp[i][2]:.2f}%')
-    table5 = Align.center(table5)
+    add_result_table(table1, "Grandezas no PAC")
+    add_result_table(table2, "Impedâncias")
+    add_result_table(table3, "Fasores de contribuição")
+    add_result_table(table4, "Projeções escalares")
+    add_result_table(table5, "Responsabilidades")
 
-    print('\n') 
-    console.print(table1)
-    print('\n') 
-    console.print(table2)
-    print('\n') 
-    console.print(table3)
-    print('\n') 
-    console.print(table4)
-    print('\n')    
-    console.print(table5)
-#CÓDIGO
 
-console = Console()
+def add_result_table(table, tab_title):
+    headers = [str(column.header).replace("\n", " ") for column in table.columns]
+    rows = []
+    for row_index in range(len(table.rows)):
+        rows.append(tuple(str(column._cells[row_index]) for column in table.columns))
+    footers = [str(column.footer).replace("\n", " ") for column in table.columns]
+    result_tables.append((tab_title, headers, rows, footers))
+
+
+def show_results(tables):
+    window = tk.Tk()
+    window.title("Resultados da análise harmônica")
+    window.geometry("1180x760")
+    window.minsize(760, 500)
+    window.configure(background="#101820")
+
+    style = ttk.Style(window)
+    style.theme_use("clam")
+    style.configure("Root.TFrame", background="#101820")
+    style.configure("Header.TFrame", background="#172733")
+    style.configure(
+        "Tabs.TNotebook",
+        background="#101820",
+        borderwidth=0,
+        tabmargins=(0, 0, 0, 0),
+    )
+    style.configure(
+        "Tabs.TNotebook.Tab",
+        background="#1C303D",
+        foreground="#B8C8D3",
+        padding=(16, 9),
+        font=("Segoe UI", 10, "bold"),
+    )
+    style.map(
+        "Tabs.TNotebook.Tab",
+        background=[("selected", "#2C7A7B")],
+        foreground=[("selected", "#FFFFFF")],
+    )
+    style.configure(
+        "Title.TLabel",
+        background="#172733",
+        foreground="#F5F7FA",
+        font=("Segoe UI", 19, "bold"),
+    )
+    style.configure(
+        "Subtitle.TLabel",
+        background="#172733",
+        foreground="#9FB3C8",
+        font=("Segoe UI", 10),
+    )
+    style.configure(
+        "Close.TButton",
+        background="#2C7A7B",
+        foreground="#FFFFFF",
+        font=("Segoe UI", 10, "bold"),
+        padding=(18, 8),
+    )
+    style.map("Close.TButton", background=[("active", "#38A3A5")])
+
+    root = ttk.Frame(window, style="Root.TFrame", padding=22)
+    root.pack(fill=tk.BOTH, expand=True)
+
+    header = ttk.Frame(root, style="Header.TFrame", padding=(24, 20))
+    header.pack(fill=tk.X)
+    ttk.Label(
+        header,
+        text="Resultados da análise harmônica",
+        style="Title.TLabel",
+    ).pack(anchor=tk.W)
+    ttk.Label(
+        header,
+        text="Cálculo concluído • valores organizados por etapa da análise",
+        style="Subtitle.TLabel",
+    ).pack(anchor=tk.W, pady=(5, 0))
+
+    notebook = ttk.Notebook(root, style="Tabs.TNotebook")
+    notebook.pack(fill=tk.BOTH, expand=True, pady=(16, 12))
+
+    style.configure(
+        "Results.Treeview",
+        background="#0B1117",
+        fieldbackground="#0B1117",
+        foreground="#E6EDF3",
+        rowheight=30,
+        font=("Segoe UI", 10),
+        borderwidth=0,
+    )
+    style.configure(
+        "Results.Treeview.Heading",
+        background="#2C7A7B",
+        foreground="#FFFFFF",
+        font=("Segoe UI", 10, "bold"),
+        padding=(10, 8),
+    )
+    style.map(
+        "Results.Treeview",
+        background=[("selected", "#245A75")],
+        foreground=[("selected", "#FFFFFF")],
+    )
+
+    for tab_title, headers, rows, footers in tables:
+        tab = ttk.Frame(notebook, style="Root.TFrame", padding=(0, 14, 0, 0))
+        notebook.add(tab, text=tab_title)
+        table_frame = ttk.Frame(tab, style="Root.TFrame")
+        table_frame.pack(fill=tk.BOTH, expand=True)
+
+        columns = [f"column_{index}" for index in range(len(headers))]
+        tree = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+            style="Results.Treeview",
+            selectmode="browse",
+        )
+        vertical_scroll = ttk.Scrollbar(
+            table_frame,
+            orient=tk.VERTICAL,
+            command=tree.yview,
+        )
+        horizontal_scroll = ttk.Scrollbar(
+            table_frame,
+            orient=tk.HORIZONTAL,
+            command=tree.xview,
+        )
+        tree.configure(
+            yscrollcommand=vertical_scroll.set,
+            xscrollcommand=horizontal_scroll.set,
+        )
+
+        for column_id, header in zip(columns, headers):
+            tree.heading(column_id, text=header)
+            tree.column(column_id, anchor=tk.CENTER, width=max(140, len(header) * 10), stretch=True)
+
+        for row in rows:
+            tree.insert("", tk.END, values=row)
+
+        if any(footers):
+            tree.insert("", tk.END, values=footers, tags=("footer",))
+            tree.tag_configure("footer", background="#172733", foreground="#FFFFFF", font=("Segoe UI", 10, "bold"))
+
+        tree.grid(row=0, column=0, sticky="nsew")
+        vertical_scroll.grid(row=0, column=1, sticky="ns")
+        horizontal_scroll.grid(row=1, column=0, sticky="ew")
+        table_frame.rowconfigure(0, weight=1)
+        table_frame.columnconfigure(0, weight=1)
+
+    footer = ttk.Frame(root, style="Root.TFrame")
+    footer.pack(fill=tk.X)
+    ttk.Label(
+        footer,
+        text="Análise finalizada",
+        style="Subtitle.TLabel",
+    ).pack(side=tk.LEFT)
+    ttk.Button(
+        footer,
+        text="Fechar",
+        command=window.destroy,
+        style="Close.TButton",
+    ).pack(side=tk.RIGHT)
+
+    window.mainloop()
+
+
+# CÓDIGO
+
+result_tables = []
 
 Sb = float(input("Insira a base de potência: "))
 qntbars = int(input("Insira a quantidade de barras: "))
@@ -848,13 +988,12 @@ while(frombar != -1):
     if frombar != -1:
         tobar = int(input("Para barra: "))
         new_connect(y,frombar,tobar,bars, connections)
-print(connections)
 soma_shunt(y,bars)   
 e = pow(10,-15)
 
 NewtonRhapson(y,bars,barsqnt,e)
-print(calc_impedancias(1,bars,5, connections))
 harmonic = get_corrente(qntbars,Sb)
 
 harmonic_calc(harmonic,connections,qntbars,bars,vh)
 compartilha(y,bars,connections,harmonic,vh)
+show_results(result_tables)
