@@ -349,7 +349,10 @@ def calc_pow(bars,y, qnt):
 def NewtonRhapson(y,bars,qnt,e):
     #Processo do Newton Rhapson de fato
     test = 0
+    iteracao = 0
+    max_iter = 100
     while True:
+        iteracao += 1
         x = create_x(bars, y, barsqnt)
         jacob = np.linalg.inv(np.negative(create_jacob(bars, y,qnt)))
 
@@ -385,8 +388,10 @@ def NewtonRhapson(y,bars,qnt,e):
         x = create_x(bars, y, barsqnt)
         #print("test")
 
-        if convergence(x,e) == True:
+        if convergence(x,e) == True or iteracao >= max_iter:
             calc_pow(bars,y, barsqnt)
+            if iteracao >= max_iter and convergence(x,e) == False:
+                print(f"Aviso: fluxo de potência atingiu {max_iter} iterações sem convergir na tolerância {e}.")
             break
 
 def exist_in(x,vet):
@@ -474,42 +479,74 @@ def correct_y(connections, barsqnt, h,bars):
 
 
 def harmonic_calc(currents, connections, barsqnt,bars,vh):
-    DTT = new_matriz(barsqnt, 1)
-    DIT = new_matriz(barsqnt, len(currents))
+    # sem correntes harmônicas injetadas não há análise harmônica a fazer
+    if len(currents) == 0:
+        return new_matriz(barsqnt, 1)
+
+    # ordens harmônicas existentes (uma por corrente injetada)
+    orders = [currents[count][0] for count in range(len(currents))]
+
+    DTT = new_matriz(barsqnt, 1)                 # Distorção Total de Tensão (%)
+    DIT = new_matriz(barsqnt, len(currents))     # Distorção Individual de Tensão (%) por ordem
+    Vharm = new_matriz(barsqnt, len(currents))   # fasores de tensão harmônica (p.u.) por ordem
+
     for count in range(len(currents)):
         h = currents[count][0]
 
         Yh = np.linalg.inv(correct_y(connections,barsqnt,h,bars))
-        #print(currents[count][1])
-        #print("\n")
-        #print(Yh)
 
         v = np.matmul(Yh,currents[count][1])
 
-        for l in range(len(DIT)):
-            DIT[l][count] = v[l][0]
+        for l in range(barsqnt):
+            Vharm[l][count] = v[l][0]
+            v1 = bars[l][2] if bars[l][2] != 0 else 1.0   # tensão fundamental (p.u.)
+            DIT[l][count] = (abs(v[l][0]) / v1) * 100.0
 
-        for i in range(len(DTT)):
+        for i in range(barsqnt):
             DTT[i][0] += abs(v[i][0])*abs(v[i][0])
 
-    for i in range(len(DTT)):
-        DTT[i][0] = (np.sqrt(DTT[i][0])*100)
-    vh.append(v)
+    for i in range(barsqnt):
+        v1 = bars[i][2] if bars[i][2] != 0 else 1.0
+        DTT[i][0] = (np.sqrt(DTT[i][0]) / v1) * 100.0
 
-    #print(f'VPAC = {abs(v[1][0])*13800/math.sqrt(3.0)}∠{cmath.phase(v[1][0])*(180/math.pi) + 30}°')
+    vh.append(v)   # mantém o último harmônico para a análise de compartilhamento
 
-    #print("MEU VPAC: ",v[1])
-    table = Table(show_header=True, header_style="bold orange_red1", box=box.HEAVY, title="Distorções harmônicas individuais para h = 5", title_style="bold orange_red1")
-    table.add_column("Barra", justify="center")
-    table.add_column("Tensão harmônica (V)\nh = 5", justify="center")
-    table.add_column("DIT (h = 5)", justify="center")
-    for i in range(len(DTT)):
-        table.add_row(f'Barra {i + 1}', f'{abs(v[i][0])*(bars[i][8] * 1e3)/math.sqrt(3.0):.2f}∠{cmath.phase(v[i][0])*(180/math.pi) + 30:.2f}°', f'{DTT[i][0]:.2f}%')
-    #print("DIT: \n",DIT,"\n")
-    #print("DTT: \n",DTT,"\n")
+    orders_txt = ", ".join(f"h = {o}" for o in orders)
 
-    print('\n')  
-    add_result_table(table, "Distorções harmônicas")
+    # Tabela A: tensões harmônicas por barra (fundamental + módulo∠ângulo de cada ordem)
+    table_v = Table(show_header=True, header_style="bold orange_red1", box=box.HEAVY,
+                    title=f"Tensões harmônicas por barra ({orders_txt})", title_style="bold orange_red1")
+    table_v.add_column("Barra", justify="center")
+    table_v.add_column("Tensão fundamental\n(p.u.)", justify="center")
+    table_v.add_column("Ângulo fundamental\n(°)", justify="center")
+    for o in orders:
+        table_v.add_column(f"Tensão harmônica (V)\nh = {o}", justify="center")
+    for i in range(barsqnt):
+        row = [f'Barra {i + 1}',
+               f'{bars[i][2]:.4f}',
+               f'{math.degrees(bars[i][3]):.2f}°']
+        for count in range(len(orders)):
+            vph = Vharm[i][count]
+            row.append(f'{abs(vph)*(bars[i][8] * 1e3)/math.sqrt(3.0):.2f}∠{cmath.phase(vph)*(180/math.pi) + 30:.2f}°')
+        table_v.add_row(*row)
+
+    # Tabela B: distorções harmônicas (DIT por ordem + DTT total) por barra
+    table_d = Table(show_header=True, header_style="bold orange_red1", box=box.HEAVY,
+                    title=f"Distorções harmônicas de tensão por barra ({orders_txt})", title_style="bold orange_red1")
+    table_d.add_column("Barra", justify="center")
+    for o in orders:
+        table_d.add_column(f"DIT (%)\nh = {o}", justify="center")
+    table_d.add_column("DTT (%)\n(total)", justify="center")
+    for i in range(barsqnt):
+        row = [f'Barra {i + 1}']
+        for count in range(len(orders)):
+            row.append(f'{DIT[i][count]:.2f}%')
+        row.append(f'{DTT[i][0]:.2f}%')
+        table_d.add_row(*row)
+
+    print('\n')
+    add_result_table(table_v, "Tensões harmônicas")
+    add_result_table(table_d, "Distorções (DIT/DTT)")
 
     return DTT
 
@@ -617,6 +654,13 @@ def compartilha(y,bars, connections, currents, vh):
     vs_proj = []
     resp = []
 
+    # grandezas elétricas calculadas por barra consumidora
+    vpac_list = []
+    zs_list = []
+    zc_list = []
+    is_list = []
+    ic_list = []
+
     cVec = []
     cVec = [int(item) for item in input("Insira a barra consumidora: ").split()]
     cVec = [x-1 for x in cVec]
@@ -711,6 +755,13 @@ def compartilha(y,bars, connections, currents, vh):
         vs_pac.append(vspach)
         vc_pac.append(vcpach)
 
+        # guarda as grandezas elétricas desta barra consumidora
+        vpac_list.append(vpac)
+        zs_list.append(zsh)
+        zc_list.append(zch)
+        is_list.append(ish)
+        ic_list.append(ich)
+
         #print("ish: ",abs(ish),cmath.phase(ish)*(180/math.pi) ," -> ",ish)
         #print("ich: ",abs(ich),cmath.phase(ich)*(180/math.pi)," -> ",ich)
         #print("ipac: ",abs(ipac),cmath.phase(ipac)*(180/math.pi)," -> ",ipac)
@@ -752,6 +803,32 @@ def compartilha(y,bars, connections, currents, vh):
         total[1] += resp[i][1]
         total[2] += resp[i][2]
 
+    # ordem harmônica analisada no compartilhamento (tensões usadas em vh)
+    hc = currents[-1][0] if len(currents) > 0 else 5
+    consumer_labels = [f'Barra {c + 1}' for c in cVec]
+
+    def _fmt(z):
+        return f'{abs(z):.2f}∠{cmath.phase(z)*(180/math.pi):.2f}°'
+
+    # Tabela consolidada: todas as grandezas elétricas calculadas por barra consumidora
+    table0 = Table(show_header=True, header_style="bold cyan", box=box.HEAVY,
+                   title=f"Grandezas elétricas calculadas por barra consumidora - h = {hc}", title_style="bold cyan")
+    table0.add_column("Grandeza", justify="left")
+    for lbl in consumer_labels:
+        table0.add_column(lbl, justify="center")
+    grandezas = [
+        ("Vpac (V)", vpac_list),
+        ("Ipac (A)", iInd),
+        ("Zs (Ω)", zs_list),
+        ("Zc (Ω)", zc_list),
+        ("Is (A)", is_list),
+        ("Ic (A)", ic_list),
+        ("Vs_pac (V)", vs_pac),
+        ("Vc_pac (V)", vc_pac),
+    ]
+    for nome, valores in grandezas:
+        table0.add_row(nome, *[_fmt(valores[i]) for i in range(len(consumer_labels))])
+
     table1 = Table(show_header=True, header_style="bold orange1", box=box.HEAVY, title="Grandezas elétricas constatadas no PAC - análise para h = 5", title_style="bold orange1")
     table1.add_column("Grandeza\nordem h = 5", justify="center")
     table1.add_column("Valores", justify="center")
@@ -783,7 +860,8 @@ def compartilha(y,bars, connections, currents, vh):
     table5.add_column("Responsabilidade\nMétodo 2", justify="center", footer=f'{total[1]:.2f}%')
     table5.add_column("Responsabilidade\nMétodo 3", justify="center", footer=f'{total[2]:.2f}%')
     for i in range(len(resp)):
-        table5.add_row(f'Indústria {i + 1}', f'{resp[i][0]:.2f}%', f'{resp[i][1]:.2f}%', f'{resp[i][2]:.2f}%')
+        table5.add_row(f'Indústria {i + 1} ({consumer_labels[i]})', f'{resp[i][0]:.2f}%', f'{resp[i][1]:.2f}%', f'{resp[i][2]:.2f}%')
+    add_result_table(table0, "Grandezas por barra")
     add_result_table(table1, "Grandezas no PAC")
     add_result_table(table2, "Impedâncias")
     add_result_table(table3, "Fasores de contribuição")
@@ -798,6 +876,37 @@ def add_result_table(table, tab_title):
         rows.append(tuple(str(column._cells[row_index]) for column in table.columns))
     footers = [str(column.footer).replace("\n", " ") for column in table.columns]
     result_tables.append((tab_title, headers, rows, footers))
+
+
+def montar_tabela_barras(bars):
+    # Tabela com todas as informações de cada barra após o fluxo de potência fundamental.
+    # Convenção de potência: injeção líquida na barra (geração positiva, carga negativa).
+    tipos = {1: "SLACK (Ref.)", 2: "PV", 3: "PQ"}
+    table = Table(show_header=True, header_style="bold cyan", box=box.HEAVY,
+                  title="Resultados do fluxo de potência (fundamental) por barra",
+                  title_style="bold cyan")
+    table.add_column("Barra", justify="center")
+    table.add_column("Tipo", justify="center")
+    table.add_column("Tensão\n(p.u.)", justify="center")
+    table.add_column("Tensão\n(kV)", justify="center")
+    table.add_column("Ângulo\n(°)", justify="center")
+    table.add_column("P injetada\n(MW)", justify="center")
+    table.add_column("Q injetada\n(Mvar)", justify="center")
+    table.add_column("Shunt\n(Mvar)", justify="center")
+    table.add_column("Base\n(kV)", justify="center")
+    for i in range(len(bars)):
+        table.add_row(
+            f'Barra {i + 1}',
+            tipos.get(bars[i][0], "?"),
+            f'{bars[i][2]:.4f}',
+            f'{bars[i][2]*bars[i][8]:.3f}',
+            f'{math.degrees(bars[i][3]):.3f}',
+            f'{bars[i][4]*Sb:.2f}',
+            f'{bars[i][5]*Sb:.2f}',
+            f'{bars[i][1]*Sb:.1f}',
+            f'{bars[i][8]:.1f}',
+        )
+    add_result_table(table, "Fluxo de potência")
 
 
 def show_results(tables):
@@ -989,11 +1098,18 @@ while(frombar != -1):
         tobar = int(input("Para barra: "))
         new_connect(y,frombar,tobar,bars, connections)
 soma_shunt(y,bars)   
-e = pow(10,-15)
+e = pow(10,-8)
 
 NewtonRhapson(y,bars,barsqnt,e)
+montar_tabela_barras(bars)   # resultados do fluxo de potência por barra (sempre exibidos)
 harmonic = get_corrente(qntbars,Sb)
 
-harmonic_calc(harmonic,connections,qntbars,bars,vh)
-compartilha(y,bars,connections,harmonic,vh)
+if len(harmonic) > 0:
+    harmonic_calc(harmonic,connections,qntbars,bars,vh)
+    compartilha(y,bars,connections,harmonic,vh)
+else:
+    print("\nNenhuma corrente harmônica foi inserida.")
+    print("A análise de penetração harmônica e de compartilhamento foi ignorada.")
+    print("O cálculo do fluxo de potência (fundamental) foi concluído.")
+
 show_results(result_tables)
