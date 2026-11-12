@@ -455,8 +455,8 @@ def correct_y(connections, barsqnt, h,bars):
         z = r + (xl*1j) 
 
 
-        y[frombar-1][tobar-1] = -1/z
-        y[tobar-1][frombar-1] = -1/z
+        y[frombar-1][tobar-1] += -1/z
+        y[tobar-1][frombar-1] += -1/z
 
         y[frombar-1][frombar-1] += 1/z + (b*1j)/2
         y[tobar-1][tobar-1] += 1/z + (b*1j)/2
@@ -524,10 +524,10 @@ def harmonic_calc(currents, connections, barsqnt,bars,vh):
     for i in range(barsqnt):
         row = [f'Barra {i + 1}',
                f'{bars[i][2]:.4f}',
-               f'{math.degrees(bars[i][3]):.2f}°']
+               f'{math.degrees(bars[i][3]):.4f}°']
         for count in range(len(orders)):
             vph = Vharm[i][count]
-            row.append(f'{abs(vph)*(bars[i][8] * 1e3)/math.sqrt(3.0):.2f}∠{cmath.phase(vph)*(180/math.pi) + 30:.2f}°')
+            row.append(f'{abs(vph)*(bars[i][8] * 1e3)/math.sqrt(3.0):.4f}∠{cmath.phase(vph)*(180/math.pi) + 30:.4f}°')
         table_v.add_row(*row)
 
     # Tabela B: distorções harmônicas (DIT por ordem + DTT total) por barra
@@ -540,8 +540,8 @@ def harmonic_calc(currents, connections, barsqnt,bars,vh):
     for i in range(barsqnt):
         row = [f'Barra {i + 1}']
         for count in range(len(orders)):
-            row.append(f'{DIT[i][count]:.2f}%')
-        row.append(f'{DTT[i][0]:.2f}%')
+            row.append(f'{DIT[i][count]:.4f}%')
+        row.append(f'{DTT[i][0]:.4f}%')
         table_d.add_row(*row)
 
     print('\n')
@@ -556,60 +556,45 @@ def calc_impedancias(PAC,bars,h,connections):
     vBase = bars[PAC][8] * 1e3
     zBase = (vBase**2) / sBase
     impedancias = new_matriz(1,len(bars)-1)[0]
+    Zaberto = complex(0, 1e12)   # elemento ausente (sem carga/capacitor/ligação) = ramo aberto
     fill = 0
     for i in range(len(bars)):
         if(bars[i][0] == 1):
+            Rcon = Xcon = 0.0
+            achou = False
             for c in range(len(connections)):
                 if(connections[c][0] == (i+1) or connections[c][1] == (i+1)):
-                    #print(c)
                     Rcon = connections[c][2]
                     Xcon = connections[c][3]*h
-                    #print("Rcon, Xcon:",Rcon,Xcon)
-            #Lcon = (Xcon)/(2*math.pi*60)
-            #Zcon = complex(Rcon,Xcon)*((13800*13800)/10000000)
+                    achou = True
             Zcon = complex(Rcon,Xcon)*zBase
-            impedancias[fill] = Zcon
-            #print("Zcon = ",Zcon)
+            impedancias[fill] = Zcon if achou else Zaberto
             fill += 1
         else:
             if(i != PAC):
-                #Zbase = (v*v)/(bars[i][9]*1000000)
-                #print("Zb[",i,"]",Zbase)
-                #Rind = ((bars[i][2]*bars[i][8]*1000)*(bars[i][2]*bars[i][8]*1000))/(bars[i][4]*1000000)
-                #Rind = ((bars[i][2]*13800)*(bars[i][2]*13800))/(bars[i][4]*10000000)
-                Rind = ((bars[i][2]*vBase)*(bars[i][2]*vBase))/(bars[i][4]*sBase)
-                Rind = Rind*-1
-                #print("R[",i,"]",Rind)
-                #Lind = ((bars[i][2]*13800)*(bars[i][2]*13800)*h)/(bars[i][5]*10000000)
-                Lind = ((bars[i][2]*vBase)*(bars[i][2]*vBase)*h)/(bars[i][5]*sBase)
-                Lind = Lind*-1
-                #print("L[",i,"]",Lind)
-                #Cind = ((bars[i][2]*13800)*(bars[i][2]*13800))/(bars[i][1]*10000000*h)
-                Cind = ((bars[i][2]*vBase)*(bars[i][2]*vBase))/(bars[i][1]*sBase*h)
-                #print("C[",i,"]",Cind)
-                #Rind_ = Rind*((bars[PAC][8]/bars[i][8])*(bars[PAC][8]/bars[i][8]))
-                #Lind_ = Lind*((bars[PAC][8]/bars[i][8])*(bars[PAC][8]/bars[i][8]))
-                #Cind_ = Cind*((bars[i][8]/bars[PAC][8])*(bars[i][8]/bars[PAC][8]))
+                v2 = (bars[i][2]*vBase)*(bars[i][2]*vBase)
+                # Admitância shunt da barra: soma apenas os elementos que existem.
+                # No sistema de 20 barras a maioria das barras não tem capacitor, e barras
+                # sem carga não têm R nem L; um elemento ausente é um ramo aberto (admitância 0).
+                Ysh = 0 + 0j
+                if bars[i][4] != 0:                 # potência ativa -> resistência da carga
+                    Rind = -v2/(bars[i][4]*sBase)
+                    Ysh += 1/Rind
+                if bars[i][5] != 0:                 # potência reativa -> indutância da carga
+                    Lind = -v2*h/(bars[i][5]*sBase)
+                    Ysh += 1/(1j*Lind)
+                if bars[i][1] != 0:                 # capacitância -> capacitor shunt
+                    Cind = v2/(bars[i][1]*sBase*h)
+                    Ysh += 1/(-1j*Cind)
+                Rtrafo = Xtrafo = 0.0
                 for c in range(len(connections)):
                     if(connections[c][0] == (i+1) or connections[c][1] == (i+1)):
                         Rtrafo = connections[c][2]
                         Xtrafo = connections[c][3]*h
-
-                #Ztrafo = complex(Rtrafo,Xtrafo)*((13800*13800)/10000000)
                 Ztrafo = complex(Rtrafo,Xtrafo)*zBase
-                #print("RL_par[",i,"]",RL_par)
-                Zind = Ztrafo + 1/(1/Rind + 1/(1j*Lind) + 1/(-1j*Cind))
-                #print("Zc[",i,"]",Zc)
-
-                #print("RL_C_par[",i,"]",RL_C_par)
-                #print("Z_ind[",i,"]",Z_ind)
+                # Barra sem carga e sem capacitor -> shunt aberto (só a ligação em série).
+                Zind = Ztrafo + (1/Ysh if Ysh != 0 else Zaberto)
                 impedancias[fill] = Zind
-                #if(i == 2):
-                #    print("Rind: ",Rind)
-                #    print("Lind: ",Lind)
-                #    print("Cind: ",Cind)
-                #    print("Zind[",i,"]",Zind)
-                #    print("V = ",(bars[i][2]*13800))
                 fill += 1
 
     return impedancias
@@ -807,66 +792,22 @@ def compartilha(y,bars, connections, currents, vh):
     hc = currents[-1][0] if len(currents) > 0 else 5
     consumer_labels = [f'Barra {c + 1}' for c in cVec]
 
-    def _fmt(z):
-        return f'{abs(z):.2f}∠{cmath.phase(z)*(180/math.pi):.2f}°'
-
-    # Tabela consolidada: todas as grandezas elétricas calculadas por barra consumidora
-    table0 = Table(show_header=True, header_style="bold cyan", box=box.HEAVY,
-                   title=f"Grandezas elétricas calculadas por barra consumidora - h = {hc}", title_style="bold cyan")
-    table0.add_column("Grandeza", justify="left")
-    for lbl in consumer_labels:
-        table0.add_column(lbl, justify="center")
-    grandezas = [
-        ("Vpac (V)", vpac_list),
-        ("Ipac (A)", iInd),
-        ("Zs (Ω)", zs_list),
-        ("Zc (Ω)", zc_list),
-        ("Is (A)", is_list),
-        ("Ic (A)", ic_list),
-        ("Vs_pac (V)", vs_pac),
-        ("Vc_pac (V)", vc_pac),
-    ]
-    for nome, valores in grandezas:
-        table0.add_row(nome, *[_fmt(valores[i]) for i in range(len(consumer_labels))])
-
     table1 = Table(show_header=True, header_style="bold orange1", box=box.HEAVY, title="Grandezas elétricas constatadas no PAC - análise para h = 5", title_style="bold orange1")
     table1.add_column("Grandeza\nordem h = 5", justify="center")
     table1.add_column("Valores", justify="center")
-    table1.add_row(f'V_pac-h (V)', f'{abs(vpac):.2f}∠{cmath.phase(vpac)*(180/math.pi):.2f}°')
-    table1.add_row(f'I_con-h (A)', f'{abs(iCon):.2f}∠{cmath.phase(iCon)*(180/math.pi):.2f}°')
+    table1.add_row(f'V_pac-h (V)', f'{abs(vpac):.4f}∠{cmath.phase(vpac)*(180/math.pi):.4f}°')
+    table1.add_row(f'I_con-h (A)', f'{abs(iCon):.4f}∠{cmath.phase(iCon)*(180/math.pi):.4f}°')
     for i in range(len(iInd)):
-        table1.add_row(f'I_ind{i + 1}-h (A)', f'{abs(iInd[i]):.2f}∠{cmath.phase(iInd[i])*(180/math.pi):.2f}°')
-    table2 = Table(show_header=True, header_style="bold blue", box=box.HEAVY, title="Impedâncias harmônicas das partes do sistema - análise para h = 5", title_style="bold blue")
-    table2.add_column("Grandeza\nordem h = 5", justify="center")
-    table2.add_column("Valor de\nimpedância (Ω)", justify="center")
-    table2.add_row(f'Z_con-h', f'{abs(zCon):.2f}∠{cmath.phase(zCon)*(180/math.pi):.2f}°')
-    for i in range(len(zInd)):
-        table2.add_row(f'Z_ind{i + 1}-h', f'{abs(zInd[i]):.2f}∠{cmath.phase(zInd[i])*(180/math.pi):.2f}°')
-    table3 = Table(show_header=True, header_style="bold green", box=box.HEAVY, title="Fasores de contribuição individual de tensão em cada análise de compartilhamento", title_style="bold green")
-    table3.add_column("Compartilhamento\ninvestigado", justify="center")
-    table3.add_column("Vs-proj-h (V)", justify="center")
-    table3.add_column("Vc-proj-h (V)", justify="center")
-    for i in range(len(vs_pac)):
-        table3.add_row(f'Indústria {i + 1}', f'{abs(vs_pac[i]):.2f}∠{cmath.phase(vs_pac[i])*(180/math.pi):.2f}°', f'{abs(vc_pac[i]):.2f}∠{cmath.phase(vc_pac[i])*(180/math.pi):.2f}°')
-    table4 = Table(show_header=True, header_style="bold red", box=box.HEAVY, title="Projeções escalares dos fasores de contribuição individual de cada parte", title_style="bold red")
-    table4.add_column("Compartilhamento\ninvestigado", justify="center")
-    table4.add_column("Vs-proj-h (V)", justify="center")
-    table4.add_column("Vc-proj-h (V)", justify="center")
-    for i in range(len(vs_proj)):
-        table4.add_row(f'Indústria {i + 1}', f'{vs_proj[i]:.2f}', f'{vc_proj[i]:.2f}')
-    table5 = Table(show_header=True, show_footer=True, header_style="bold magenta", box=box.HEAVY, title="Percentuais de responsabilidades cabidos às indústrias", title_style="bold magenta")
+        table1.add_row(f'I_ind{i + 1}-h (A)', f'{abs(iInd[i]):.4f}∠{cmath.phase(iInd[i])*(180/math.pi):.4f}°')
+
+    table5 = Table(show_header=True, show_footer=True, header_style="bold magenta", box=box.HEAVY, title="Responsabilidade pelas distorções harmônicas", title_style="bold magenta")
     table5.add_column("Compartilhamento\ninvestigado", justify="center", footer="TOTAL")
-    table5.add_column("Responsabilidade\nMétodo 1", justify="center", footer=f'{total[0]:.2f}%')
-    table5.add_column("Responsabilidade\nMétodo 2", justify="center", footer=f'{total[1]:.2f}%')
-    table5.add_column("Responsabilidade\nMétodo 3", justify="center", footer=f'{total[2]:.2f}%')
+    table5.add_column("Responsabilidade", justify="center", footer=f'{total[0]:.4f}%')
     for i in range(len(resp)):
-        table5.add_row(f'Indústria {i + 1} ({consumer_labels[i]})', f'{resp[i][0]:.2f}%', f'{resp[i][1]:.2f}%', f'{resp[i][2]:.2f}%')
-    add_result_table(table0, "Grandezas por barra")
+        table5.add_row(f'Indústria {i + 1} ({consumer_labels[i]})', f'{resp[i][0]:.4f}%')
+
     add_result_table(table1, "Grandezas no PAC")
-    add_result_table(table2, "Impedâncias")
-    add_result_table(table3, "Fasores de contribuição")
-    add_result_table(table4, "Projeções escalares")
-    add_result_table(table5, "Responsabilidades")
+    add_result_table(table5, "Responsabilidade")
 
 
 def add_result_table(table, tab_title):
@@ -899,11 +840,11 @@ def montar_tabela_barras(bars):
             f'Barra {i + 1}',
             tipos.get(bars[i][0], "?"),
             f'{bars[i][2]:.4f}',
-            f'{bars[i][2]*bars[i][8]:.3f}',
-            f'{math.degrees(bars[i][3]):.3f}',
-            f'{bars[i][4]*Sb:.2f}',
-            f'{bars[i][5]*Sb:.2f}',
-            f'{bars[i][1]*Sb:.1f}',
+            f'{bars[i][2]*bars[i][8]:.4f}',
+            f'{math.degrees(bars[i][3]):.4f}',
+            f'{bars[i][4]*Sb:.4f}',
+            f'{bars[i][5]*Sb:.4f}',
+            f'{bars[i][1]*Sb:.4f}',
             f'{bars[i][8]:.1f}',
         )
     add_result_table(table, "Fluxo de potência")
